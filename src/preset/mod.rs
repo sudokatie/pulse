@@ -2,4 +2,4 @@
 
 mod format;
 
-pub use format::Preset;
+pub use format::{Preset, PresetBank, PresetManager};
