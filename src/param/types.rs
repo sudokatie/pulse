@@ -1,5 +1,7 @@
 //! Parameter type definitions
 
+use super::value::ParamValue;
+
 /// Parameter types
 #[derive(Debug, Clone)]
 pub enum ParamType {
@@ -11,6 +13,18 @@ pub enum ParamType {
     Bool { default: bool },
     /// Enumeration (choices, default index)
     Enum { choices: Vec<String>, default: usize },
+}
+
+impl ParamType {
+    /// Get the default value for this parameter type
+    pub fn default_value(&self) -> ParamValue {
+        match self {
+            ParamType::Float { default, .. } => ParamValue::Float(*default),
+            ParamType::Int { default, .. } => ParamValue::Int(*default),
+            ParamType::Bool { default } => ParamValue::Bool(*default),
+            ParamType::Enum { default, .. } => ParamValue::Enum(*default),
+        }
+    }
 }
 
 /// Parameter information

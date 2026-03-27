@@ -1,9 +1,10 @@
 //! Parameter values and normalization
 
+use serde::{Deserialize, Serialize};
 use super::types::ParamType;
 
 /// Parameter value
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ParamValue {
     Float(f32),
     Int(i32),
