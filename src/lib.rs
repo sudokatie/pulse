@@ -25,11 +25,13 @@
 //! reverb.process(&mut buffer, &ProcessContext::default());
 //! ```
 
+pub mod audio;
 pub mod buffer;
 pub mod cli;
 pub mod effects;
 pub mod format;
 pub mod host;
+pub mod midi;
 pub mod param;
 pub mod plugin;
 pub mod preset;
@@ -37,8 +39,14 @@ pub mod process;
 
 /// Prelude with common types
 pub mod prelude {
+    pub use crate::audio::{read_audio_file, write_audio_file, AudioFile, AudioDevice, AudioStream};
     pub use crate::buffer::AudioBuffer;
     pub use crate::effects::{Compressor, Delay, Distortion, ParametricEQ, Reverb};
+    pub use crate::format::{load_plugin, ClapInstance, ClapLoader, Vst3Instance};
+    #[cfg(target_os = "macos")]
+    pub use crate::format::AuInstance;
+    pub use crate::host::{PluginDatabase, PluginScanner, PluginEntry, ScannedPlugin};
+    pub use crate::midi::{MidiInput, MidiInputManager, MidiMessage, MidiEvent};
     pub use crate::param::{ParamInfo, ParamType, ParamValue, ParamSmoother};
     pub use crate::plugin::{Plugin, PluginCategory, PluginConfig, PluginInfo};
     pub use crate::process::{ProcessContext, TransportState};

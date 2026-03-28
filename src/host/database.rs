@@ -9,16 +9,22 @@ use crate::host::scanner::{PluginFormat, ScannedPlugin};
 /// Plugin entry in database
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginEntry {
+    /// Unique plugin ID
+    pub id: String,
     /// Plugin name
     pub name: String,
     /// Full path to plugin
-    pub path: String,
-    /// Plugin format (stored as string for JSON)
-    pub format: String,
+    pub path: PathBuf,
+    /// Plugin format
+    pub format: PluginFormat,
     /// Vendor name
-    pub vendor: Option<String>,
+    pub vendor: String,
     /// Category
     pub category: Option<String>,
+    /// Number of audio inputs
+    pub inputs: u32,
+    /// Number of audio outputs
+    pub outputs: u32,
     /// Whether plugin was successfully loaded
     pub verified: bool,
     /// Last scan timestamp (Unix epoch)
@@ -27,12 +33,20 @@ pub struct PluginEntry {
 
 impl PluginEntry {
     pub fn from_scanned(plugin: &ScannedPlugin) -> Self {
+        let id = format!("{}.{}", 
+            plugin.vendor.as_deref().unwrap_or("unknown").to_lowercase().replace(' ', "_"),
+            plugin.name.to_lowercase().replace(' ', "_")
+        );
+        
         Self {
+            id,
             name: plugin.name.clone(),
-            path: plugin.path.to_string_lossy().to_string(),
-            format: plugin.format.name().to_string(),
-            vendor: plugin.vendor.clone(),
+            path: plugin.path.clone(),
+            format: plugin.format,
+            vendor: plugin.vendor.clone().unwrap_or_else(|| "Unknown".to_string()),
             category: None,
+            inputs: 2,
+            outputs: 2,
             verified: false,
             last_scanned: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -40,14 +54,11 @@ impl PluginEntry {
                 .unwrap_or(0),
         }
     }
-    
-    pub fn format(&self) -> Option<PluginFormat> {
-        match self.format.as_str() {
-            "VST3" => Some(PluginFormat::Vst3),
-            "Audio Unit" => Some(PluginFormat::AudioUnit),
-            "CLAP" => Some(PluginFormat::Clap),
-            _ => None,
-        }
+}
+
+impl From<ScannedPlugin> for PluginEntry {
+    fn from(plugin: ScannedPlugin) -> Self {
+        PluginEntry::from_scanned(&plugin)
     }
 }
 
@@ -55,7 +66,7 @@ impl PluginEntry {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct PluginDatabase {
     /// All plugins
-    pub plugins: Vec<PluginEntry>,
+    plugins: Vec<PluginEntry>,
     /// Database version
     pub version: u32,
 }
@@ -77,7 +88,6 @@ impl PluginDatabase {
     
     /// Save database to file
     pub fn save(&self, path: &Path) -> io::Result<()> {
-        // Create parent directory if needed
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -94,20 +104,8 @@ impl PluginDatabase {
             .join("plugins.json")
     }
     
-    /// Add plugins from scan results
-    pub fn add_from_scan(&mut self, plugins: &[ScannedPlugin]) {
-        for plugin in plugins {
-            // Check if already exists
-            let exists = self.plugins.iter().any(|p| p.path == plugin.path.to_string_lossy());
-            
-            if !exists {
-                self.plugins.push(PluginEntry::from_scanned(plugin));
-            }
-        }
-    }
-    
-    /// Update or add a plugin
-    pub fn upsert(&mut self, entry: PluginEntry) {
+    /// Add or update a plugin
+    pub fn add_or_update(&mut self, entry: PluginEntry) {
         if let Some(existing) = self.plugins.iter_mut().find(|p| p.path == entry.path) {
             *existing = entry;
         } else {
@@ -115,66 +113,50 @@ impl PluginDatabase {
         }
     }
     
-    /// Remove plugins that no longer exist on disk
-    pub fn prune(&mut self) -> usize {
-        let before = self.plugins.len();
-        self.plugins.retain(|p| Path::new(&p.path).exists());
-        before - self.plugins.len()
+    /// Add plugins from scan results
+    pub fn add_from_scan(&mut self, plugins: &[ScannedPlugin]) {
+        for plugin in plugins {
+            let exists = self.plugins.iter().any(|p| p.path == plugin.path);
+            if !exists {
+                self.plugins.push(PluginEntry::from_scanned(plugin));
+            }
+        }
     }
     
-    /// Search by name (case-insensitive)
-    pub fn search_by_name(&self, query: &str) -> Vec<&PluginEntry> {
-        let query_lower = query.to_lowercase();
-        self.plugins
-            .iter()
-            .filter(|p| p.name.to_lowercase().contains(&query_lower))
-            .collect()
-    }
-    
-    /// Search by vendor (case-insensitive)
-    pub fn search_by_vendor(&self, vendor: &str) -> Vec<&PluginEntry> {
-        let vendor_lower = vendor.to_lowercase();
-        self.plugins
-            .iter()
-            .filter(|p| {
-                p.vendor
-                    .as_ref()
-                    .map(|v| v.to_lowercase().contains(&vendor_lower))
-                    .unwrap_or(false)
-            })
-            .collect()
-    }
-    
-    /// Filter by format
-    pub fn filter_by_format(&self, format: PluginFormat) -> Vec<&PluginEntry> {
-        self.plugins
-            .iter()
-            .filter(|p| p.format == format.name())
-            .collect()
-    }
-    
-    /// Filter by category
-    pub fn filter_by_category(&self, category: &str) -> Vec<&PluginEntry> {
-        let category_lower = category.to_lowercase();
-        self.plugins
-            .iter()
-            .filter(|p| {
-                p.category
-                    .as_ref()
-                    .map(|c| c.to_lowercase() == category_lower)
-                    .unwrap_or(false)
-            })
-            .collect()
+    /// Find plugin by ID
+    pub fn find_by_id(&self, id: &str) -> Option<&PluginEntry> {
+        self.plugins.iter().find(|p| p.id == id)
     }
     
     /// Get plugin by path
-    pub fn get_by_path(&self, path: &str) -> Option<&PluginEntry> {
+    pub fn get_by_path(&self, path: &Path) -> Option<&PluginEntry> {
         self.plugins.iter().find(|p| p.path == path)
     }
     
+    /// Search by name (case-insensitive)
+    pub fn search_by_name(&self, query: &str) -> impl Iterator<Item = &PluginEntry> {
+        let query_lower = query.to_lowercase();
+        self.plugins
+            .iter()
+            .filter(move |p| p.name.to_lowercase().contains(&query_lower))
+    }
+    
+    /// Search by vendor (case-insensitive)
+    pub fn search_by_vendor(&self, vendor: &str) -> impl Iterator<Item = &PluginEntry> {
+        let vendor_lower = vendor.to_lowercase();
+        self.plugins
+            .iter()
+            .filter(move |p| p.vendor.to_lowercase().contains(&vendor_lower))
+    }
+    
+    /// Filter by format
+    pub fn filter_by_format(&self, format: PluginFormat) -> impl Iterator<Item = &PluginEntry> {
+        self.plugins.iter().filter(move |p| p.format == format)
+    }
+    
     /// Get all plugins
-    pub fn all(&self) -> &[PluginEntry] {
-        &self.plugins
+    pub fn all_plugins(&self) -> impl Iterator<Item = &PluginEntry> {
+        self.plugins.iter()
     }
     
     /// Count plugins
@@ -184,7 +166,14 @@ impl PluginDatabase {
     
     /// Count by format
     pub fn count_by_format(&self, format: PluginFormat) -> usize {
-        self.plugins.iter().filter(|p| p.format == format.name()).count()
+        self.plugins.iter().filter(|p| p.format == format).count()
+    }
+    
+    /// Remove plugins that no longer exist on disk
+    pub fn prune(&mut self) -> usize {
+        let before = self.plugins.len();
+        self.plugins.retain(|p| p.path.exists());
+        before - self.plugins.len()
     }
 }
 
@@ -193,13 +182,16 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
     
-    fn make_entry(name: &str, format: &str) -> PluginEntry {
+    fn make_entry(name: &str, format: PluginFormat) -> PluginEntry {
         PluginEntry {
+            id: format!("test.{}", name.to_lowercase()),
             name: name.to_string(),
-            path: format!("/test/{}.{}", name, format.to_lowercase()),
-            format: format.to_string(),
-            vendor: None,
+            path: PathBuf::from(format!("/test/{}.{}", name, format.extension())),
+            format,
+            vendor: "Test".to_string(),
             category: None,
+            inputs: 2,
+            outputs: 2,
             verified: false,
             last_scanned: 0,
         }
@@ -218,8 +210,8 @@ mod tests {
         let path = temp.path().join("plugins.json");
         
         let mut db = PluginDatabase::new();
-        db.upsert(make_entry("Reverb", "VST3"));
-        db.upsert(make_entry("Compressor", "CLAP"));
+        db.add_or_update(make_entry("Reverb", PluginFormat::Vst3));
+        db.add_or_update(make_entry("Compressor", PluginFormat::Clap));
         db.save(&path).unwrap();
         
         let loaded = PluginDatabase::load(&path).unwrap();
@@ -229,14 +221,14 @@ mod tests {
     #[test]
     fn test_database_search_by_name() {
         let mut db = PluginDatabase::new();
-        db.upsert(make_entry("FabFilter Pro-Q", "VST3"));
-        db.upsert(make_entry("FabFilter Pro-C", "VST3"));
-        db.upsert(make_entry("Ozone", "VST3"));
+        db.add_or_update(make_entry("FabFilter Pro-Q", PluginFormat::Vst3));
+        db.add_or_update(make_entry("FabFilter Pro-C", PluginFormat::Vst3));
+        db.add_or_update(make_entry("Ozone", PluginFormat::Vst3));
         
-        let results = db.search_by_name("fabfilter");
+        let results: Vec<_> = db.search_by_name("fabfilter").collect();
         assert_eq!(results.len(), 2);
         
-        let results = db.search_by_name("pro-q");
+        let results: Vec<_> = db.search_by_name("pro-q").collect();
         assert_eq!(results.len(), 1);
     }
     
@@ -244,15 +236,15 @@ mod tests {
     fn test_database_search_by_vendor() {
         let mut db = PluginDatabase::new();
         
-        let mut entry = make_entry("Pro-Q", "VST3");
-        entry.vendor = Some("FabFilter".to_string());
-        db.upsert(entry);
+        let mut entry = make_entry("Pro-Q", PluginFormat::Vst3);
+        entry.vendor = "FabFilter".to_string();
+        db.add_or_update(entry);
         
-        let mut entry = make_entry("Ozone", "VST3");
-        entry.vendor = Some("iZotope".to_string());
-        db.upsert(entry);
+        let mut entry = make_entry("Ozone", PluginFormat::Vst3);
+        entry.vendor = "iZotope".to_string();
+        db.add_or_update(entry);
         
-        let results = db.search_by_vendor("fabfilter");
+        let results: Vec<_> = db.search_by_vendor("fabfilter").collect();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "Pro-Q");
     }
@@ -260,14 +252,14 @@ mod tests {
     #[test]
     fn test_database_filter_by_format() {
         let mut db = PluginDatabase::new();
-        db.upsert(make_entry("Plugin1", "VST3"));
-        db.upsert(make_entry("Plugin2", "VST3"));
-        db.upsert(make_entry("Plugin3", "CLAP"));
+        db.add_or_update(make_entry("Plugin1", PluginFormat::Vst3));
+        db.add_or_update(make_entry("Plugin2", PluginFormat::Vst3));
+        db.add_or_update(make_entry("Plugin3", PluginFormat::Clap));
         
-        let results = db.filter_by_format(PluginFormat::Vst3);
+        let results: Vec<_> = db.filter_by_format(PluginFormat::Vst3).collect();
         assert_eq!(results.len(), 2);
         
-        let results = db.filter_by_format(PluginFormat::Clap);
+        let results: Vec<_> = db.filter_by_format(PluginFormat::Clap).collect();
         assert_eq!(results.len(), 1);
     }
     
@@ -275,15 +267,14 @@ mod tests {
     fn test_database_upsert() {
         let mut db = PluginDatabase::new();
         
-        let mut entry = make_entry("Plugin", "VST3");
+        let mut entry = make_entry("Plugin", PluginFormat::Vst3);
         entry.verified = false;
-        db.upsert(entry);
+        db.add_or_update(entry);
         assert_eq!(db.count(), 1);
         
-        // Update same plugin
-        let mut entry = make_entry("Plugin", "VST3");
+        let mut entry = make_entry("Plugin", PluginFormat::Vst3);
         entry.verified = true;
-        db.upsert(entry);
+        db.add_or_update(entry);
         
         assert_eq!(db.count(), 1);
         assert!(db.plugins[0].verified);
@@ -292,9 +283,9 @@ mod tests {
     #[test]
     fn test_database_count_by_format() {
         let mut db = PluginDatabase::new();
-        db.upsert(make_entry("P1", "VST3"));
-        db.upsert(make_entry("P2", "VST3"));
-        db.upsert(make_entry("P3", "CLAP"));
+        db.add_or_update(make_entry("P1", PluginFormat::Vst3));
+        db.add_or_update(make_entry("P2", PluginFormat::Vst3));
+        db.add_or_update(make_entry("P3", PluginFormat::Clap));
         
         assert_eq!(db.count_by_format(PluginFormat::Vst3), 2);
         assert_eq!(db.count_by_format(PluginFormat::Clap), 1);
@@ -303,13 +294,7 @@ mod tests {
     
     #[test]
     fn test_plugin_entry_format_conversion() {
-        let entry = make_entry("Test", "VST3");
-        assert_eq!(entry.format(), Some(PluginFormat::Vst3));
-        
-        let entry = make_entry("Test", "CLAP");
-        assert_eq!(entry.format(), Some(PluginFormat::Clap));
-        
-        let entry = make_entry("Test", "Audio Unit");
-        assert_eq!(entry.format(), Some(PluginFormat::AudioUnit));
+        let entry = make_entry("Test", PluginFormat::Vst3);
+        assert_eq!(entry.format, PluginFormat::Vst3);
     }
 }

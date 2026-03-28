@@ -2,9 +2,10 @@
 
 use std::path::{Path, PathBuf};
 use std::fs;
+use serde::{Deserialize, Serialize};
 
 /// Plugin format types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PluginFormat {
     Vst3,
     AudioUnit,
@@ -171,6 +172,11 @@ impl PluginScanner {
         // Sort by name
         plugins.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         plugins
+    }
+    
+    /// Alias for scan()
+    pub fn scan_all(&self) -> Vec<ScannedPlugin> {
+        self.scan()
     }
     
     /// Scan a single directory

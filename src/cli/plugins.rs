@@ -1,7 +1,7 @@
 //! Plugin CLI - scan and manage plugins
 
-use std::path::Path;
-use crate::host::{PluginDatabase, PluginScanner, PluginFormat, ScannerConfig};
+use std::path::{Path, PathBuf};
+use crate::host::{PluginDatabase, PluginEntry, PluginScanner, PluginFormat, ScannerConfig};
 
 /// Scan for plugins in default and custom paths
 pub fn scan_plugins(additional_paths: &[&str], formats: Option<&[PluginFormat]>) -> ScanResult {
@@ -49,21 +49,21 @@ pub fn list_plugins(
     format_filter: Option<PluginFormat>,
     name_filter: Option<&str>,
 ) -> Vec<PluginInfo> {
-    let entries = if let Some(name) = name_filter {
-        db.search_by_name(name)
+    let entries: Vec<&PluginEntry> = if let Some(name) = name_filter {
+        db.search_by_name(name).collect()
     } else if let Some(format) = format_filter {
-        db.filter_by_format(format)
+        db.filter_by_format(format).collect()
     } else {
-        db.all().iter().collect()
+        db.all_plugins().collect()
     };
     
     entries
         .into_iter()
         .map(|e| PluginInfo {
             name: e.name.clone(),
-            path: e.path.clone(),
-            format: e.format.clone(),
-            vendor: e.vendor.clone(),
+            path: e.path.to_string_lossy().to_string(),
+            format: e.format.name().to_string(),
+            vendor: Some(e.vendor.clone()),
         })
         .collect()
 }
@@ -85,14 +85,14 @@ impl PluginInfo {
 }
 
 /// Get detailed info about a specific plugin
-pub fn get_plugin_info(db: &PluginDatabase, path: &str) -> Option<DetailedPluginInfo> {
+pub fn get_plugin_info(db: &PluginDatabase, path: &Path) -> Option<DetailedPluginInfo> {
     let entry = db.get_by_path(path)?;
     
     Some(DetailedPluginInfo {
         name: entry.name.clone(),
-        path: entry.path.clone(),
-        format: entry.format.clone(),
-        vendor: entry.vendor.clone(),
+        path: entry.path.to_string_lossy().to_string(),
+        format: entry.format.name().to_string(),
+        vendor: Some(entry.vendor.clone()),
         category: entry.category.clone(),
         verified: entry.verified,
     })
@@ -154,14 +154,16 @@ mod tests {
     #[test]
     fn test_list_plugins() {
         let mut db = PluginDatabase::new();
-        use crate::host::PluginEntry;
         
-        db.upsert(PluginEntry {
+        db.add_or_update(PluginEntry {
+            id: "test.reverb".to_string(),
             name: "Reverb".to_string(),
-            path: "/test/reverb.vst3".to_string(),
-            format: "VST3".to_string(),
-            vendor: Some("TestVendor".to_string()),
+            path: PathBuf::from("/test/reverb.vst3"),
+            format: PluginFormat::Vst3,
+            vendor: "TestVendor".to_string(),
             category: None,
+            inputs: 2,
+            outputs: 2,
             verified: false,
             last_scanned: 0,
         });

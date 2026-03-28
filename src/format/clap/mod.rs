@@ -1,8 +1,9 @@
 //! CLAP plugin format support
-//!
-//! CLAP (CLever Audio Plugin) is a modern, open-source plugin format.
-//! See https://cleveraudio.org for specification.
 
-pub mod loader;
+mod loader;
+mod host;
+mod instance;
 
-pub use loader::{ClapError, ClapLoader, ClapPluginInfo, default_clap_paths};
+pub use loader::{ClapLoader, ClapPluginInfo, ClapError, default_clap_paths};
+pub use host::ClapHost;
+pub use instance::ClapInstance;
