@@ -47,7 +47,7 @@ pub mod prelude {
     pub use crate::format::AuInstance;
     pub use crate::host::{PluginDatabase, PluginScanner, PluginEntry, ScannedPlugin};
     pub use crate::midi::{MidiInput, MidiInputManager, MidiMessage, MidiEvent};
-    pub use crate::param::{ParamInfo, ParamType, ParamValue, ParamSmoother};
+    pub use crate::param::{ParamInfo, ParamType, ParamValue, ParamSmoother, AutomationManager, AutomationCurve, AutomationLane};
     pub use crate::plugin::{Plugin, PluginCategory, PluginConfig, PluginInfo};
     pub use crate::process::{ProcessContext, TransportState};
     pub use crate::preset::Preset;

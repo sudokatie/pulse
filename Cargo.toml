@@ -46,7 +46,7 @@ criterion = "0.5"
 tempfile = "3"
 
 [[bench]]
-name = "effects_bench"
+name = "benchmarks"
 harness = false
 
 [profile.release]
