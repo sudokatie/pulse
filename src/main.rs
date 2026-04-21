@@ -32,7 +32,7 @@ enum Commands {
     Process {
         /// Input audio file
         input: String,
-        /// Output audio file  
+        /// Output audio file
         output: String,
         /// Plugin ID
         #[arg(long)]
@@ -66,6 +66,30 @@ enum Commands {
         /// Audio output device
         #[arg(long)]
         audio_output: Option<String>,
+    },
+    /// Package a plugin as a VST3 bundle
+    Package {
+        /// Plugin name
+        #[arg(long)]
+        name: String,
+        /// Plugin ID (e.g., com.example.myplugin)
+        #[arg(long)]
+        id: String,
+        /// Vendor name
+        #[arg(long)]
+        vendor: String,
+        /// Version string (e.g., 1.0.0)
+        #[arg(long, default_value = "1.0.0")]
+        version: String,
+        /// Source binary path (compiled dylib/so/dll)
+        #[arg(long)]
+        binary: Option<String>,
+        /// Output directory
+        #[arg(long, short, default_value = ".")]
+        output: String,
+        /// Target platform (macos, linux, windows)
+        #[arg(long)]
+        platform: Option<String>,
     },
 }
 
@@ -156,9 +180,9 @@ fn apply_params(effect: &mut dyn Plugin, params: &[(String, f32)]) {
 
 fn main() {
     env_logger::init();
-    
+
     let cli = Cli::parse();
-    
+
     match cli.command {
         Commands::Plugins { action } => handle_plugins(action),
         Commands::Process { input, output, plugin, effect, param } => {
@@ -169,6 +193,9 @@ fn main() {
         }
         Commands::Host { plugin_id, midi_input, audio_output } => {
             handle_host(&plugin_id, midi_input.as_deref(), audio_output.as_deref());
+        }
+        Commands::Package { name, id, vendor, version, binary, output, platform } => {
+            handle_package(&name, &id, &vendor, &version, binary.as_deref(), &output, platform.as_deref());
         }
     }
 }
@@ -299,6 +326,45 @@ fn handle_process(input: &str, output: &str, plugin: Option<&str>, effect: Optio
 
 fn handle_effect(effect_type: &str, input: &str, output: &str, params: &[(String, f32)]) {
     handle_process(input, output, None, Some(effect_type), params);
+}
+
+fn handle_package(
+    name: &str,
+    id: &str,
+    vendor: &str,
+    version: &str,
+    binary: Option<&str>,
+    output: &str,
+    platform: Option<&str>,
+) {
+    use pulse::cli::package::{PackageOptions, build_package, parse_platform, print_result};
+
+    let platform = platform.and_then(|p| {
+        let parsed = parse_platform(p);
+        if parsed.is_none() {
+            eprintln!("Warning: Unknown platform '{}', using current platform", p);
+        }
+        parsed
+    });
+
+    let options = PackageOptions {
+        name: name.to_string(),
+        id: id.to_string(),
+        vendor: vendor.to_string(),
+        version: version.to_string(),
+        binary: binary.map(PathBuf::from),
+        output_dir: PathBuf::from(output),
+        platform,
+    };
+
+    match build_package(options) {
+        Ok(result) => {
+            print_result(&result);
+        }
+        Err(e) => {
+            eprintln!("Error building package: {}", e);
+        }
+    }
 }
 
 fn handle_host(plugin_id: &str, midi_input: Option<&str>, audio_output: Option<&str>) {
