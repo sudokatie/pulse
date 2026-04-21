@@ -1,6 +1,6 @@
 # Pulse
 
-Audio plugin framework in Rust. Host VST3/AU/CLAP plugins or build your own effects. 166 tests. Zero allocations in the audio path.
+Audio plugin framework in Rust. Host VST3/AU/CLAP plugins or build your own effects. 370 tests. Zero allocations in the audio path.
 
 ## Why This Exists?
 
