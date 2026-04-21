@@ -15,6 +15,9 @@ pub mod process_adapter;
 pub mod state_bridge;
 pub mod types;
 
+// Re-export the vst3_plugin attribute macro
+pub use pulse_vst3_macro::vst3_plugin;
+
 pub use adapter::{Vst3Adapter, SharedParameterState};
 pub use audio_processor::IAudioProcessorVtable;
 pub use bundle::{BundleBuilder, Platform, ValidationResult, default_install_path};

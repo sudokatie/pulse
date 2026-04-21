@@ -91,6 +91,19 @@ enum Commands {
         #[arg(long)]
         platform: Option<String>,
     },
+    /// Install a VST3 bundle to the system plugin directory
+    Install {
+        /// Path to the VST3 bundle
+        bundle: String,
+        /// Target directory (defaults to system VST3 directory)
+        #[arg(long)]
+        target: Option<String>,
+    },
+    /// Validate a VST3 bundle structure
+    Validate {
+        /// Path to the VST3 bundle
+        bundle: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -196,6 +209,12 @@ fn main() {
         }
         Commands::Package { name, id, vendor, version, binary, output, platform } => {
             handle_package(&name, &id, &vendor, &version, binary.as_deref(), &output, platform.as_deref());
+        }
+        Commands::Install { bundle, target } => {
+            handle_install(&bundle, target.as_deref());
+        }
+        Commands::Validate { bundle } => {
+            handle_validate(&bundle);
         }
     }
 }
@@ -464,5 +483,31 @@ fn handle_host(plugin_id: &str, midi_input: Option<&str>, audio_output: Option<&
         Err(e) => {
             eprintln!("Error starting audio stream: {}", e);
         }
+    }
+}
+
+fn handle_install(bundle: &str, target: Option<&str>) {
+    use pulse::cli::install::{install_bundle, print_install_result};
+
+    let bundle_path = PathBuf::from(bundle);
+    let target_path = target.map(PathBuf::from);
+
+    let result = install_bundle(&bundle_path, target_path.as_deref());
+    print_install_result(&result);
+
+    if !result.success {
+        std::process::exit(1);
+    }
+}
+
+fn handle_validate(bundle: &str) {
+    use pulse::cli::install::{validate_bundle, print_validation_result};
+
+    let bundle_path = PathBuf::from(bundle);
+    let result = validate_bundle(&bundle_path);
+    print_validation_result(&bundle_path, &result);
+
+    if !result.is_valid() && !result.structure_valid() {
+        std::process::exit(1);
     }
 }

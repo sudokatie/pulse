@@ -41,6 +41,9 @@ ctrlc = "3.4"
 # Dynamic loading for plugins
 libloading = "0.8"
 
+# VST3 export macro
+pulse-vst3-macro = { path = "crates/pulse-vst3-macro" }
+
 [dev-dependencies]
 criterion = "0.5"
 tempfile = "3"
