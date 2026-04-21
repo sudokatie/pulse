@@ -16,6 +16,7 @@ use super::types::{
     iid, tuid_eq, ParameterInfo, TResult, TUID,
     K_CAN_AUTOMATE, K_RESULT_OK, K_INVALID_ARGUMENT, K_NOT_IMPLEMENTED,
 };
+use super::unit_info::{Vst3UnitInfo, FactoryPresets};
 
 /// VST3 Edit Controller implementation
 #[repr(C)]
@@ -31,6 +32,8 @@ pub struct Vst3EditController {
     component_handler: *mut c_void,
     /// Whether controller is initialized
     initialized: AtomicBool,
+    /// Unit info for preset support
+    unit_info: Option<Box<Vst3UnitInfo>>,
 }
 
 impl Vst3EditController {
@@ -48,6 +51,28 @@ impl Vst3EditController {
             param_state,
             component_handler: std::ptr::null_mut(),
             initialized: AtomicBool::new(false),
+            unit_info: None,
+        })
+    }
+
+    /// Create a new edit controller with preset support
+    pub fn with_presets(
+        params: Vec<ParamInfo>,
+        param_state: Arc<Mutex<SharedParameterState>>,
+        plugin_id: impl Into<String>,
+        factory_presets: FactoryPresets,
+    ) -> Box<Self> {
+        let mapping = Vst3ParameterMapping::from_params(&params);
+        let unit_info = Vst3UnitInfo::new(plugin_id).with_factory_presets(factory_presets);
+
+        Box::new(Self {
+            com: ComObject::new(&EDIT_CONTROLLER_VTABLE as *const _ as *const IUnknownVtable),
+            params,
+            mapping,
+            param_state,
+            component_handler: std::ptr::null_mut(),
+            initialized: AtomicBool::new(false),
+            unit_info: Some(Box::new(unit_info)),
         })
     }
 
@@ -59,6 +84,16 @@ impl Vst3EditController {
     /// Get parameter info by index
     pub fn get_param_info(&self, index: usize) -> Option<&ParamInfo> {
         self.params.get(index)
+    }
+
+    /// Get unit info reference for preset support
+    pub fn unit_info(&self) -> Option<&Vst3UnitInfo> {
+        self.unit_info.as_deref()
+    }
+
+    /// Get mutable unit info reference
+    pub fn unit_info_mut(&mut self) -> Option<&mut Vst3UnitInfo> {
+        self.unit_info.as_deref_mut()
     }
 }
 
@@ -105,6 +140,17 @@ unsafe extern "system" fn controller_query_interface(
         (*controller).com.add_ref();
         *obj = this;
         return K_RESULT_OK;
+    }
+
+    // Check for IUnitInfo - only supported if we have presets
+    if tuid_eq(requested_iid, &iid::IUNIT_INFO) {
+        let controller = this as *mut Vst3EditController;
+        if let Some(ref unit_info) = (*controller).unit_info {
+            (*controller).com.add_ref();
+            // Return pointer to the unit_info struct
+            *obj = unit_info.as_ref() as *const Vst3UnitInfo as *mut c_void;
+            return K_RESULT_OK;
+        }
     }
 
     *obj = std::ptr::null_mut();
@@ -729,6 +775,97 @@ mod tests {
             assert!((value - 0.2).abs() < 0.001);
 
             controller_release(void_ptr);
+        }
+    }
+
+    #[test]
+    fn test_controller_with_presets() {
+        use crate::preset::{Preset, PresetBank};
+
+        let params = vec![ParamInfo::float(0, "Volume", 0.0, 1.0, 0.5)];
+        let param_state = Arc::new(Mutex::new(SharedParameterState::new(&params)));
+
+        // Create factory presets
+        let mut bank = PresetBank::new("Factory", "test.plugin");
+        let mut preset1 = Preset::new("test.plugin", "Init");
+        preset1.set_param("Volume", 0.5);
+        bank.add(preset1);
+        let mut preset2 = Preset::new("test.plugin", "Loud");
+        preset2.set_param("Volume", 1.0);
+        bank.add(preset2);
+
+        let factory_presets = FactoryPresets::new().with_bank(bank);
+
+        let controller = Vst3EditController::with_presets(
+            params,
+            param_state,
+            "test.plugin",
+            factory_presets,
+        );
+
+        // Should have unit info
+        assert!(controller.unit_info().is_some());
+
+        let unit_info = controller.unit_info().unwrap();
+        assert_eq!(unit_info.unit_count(), 2); // Root + 1 bank
+        assert_eq!(unit_info.program_list_count(), 1); // 1 bank
+
+        // Check preset names
+        assert_eq!(unit_info.get_program_name(0, 0), Some("Init"));
+        assert_eq!(unit_info.get_program_name(0, 1), Some("Loud"));
+    }
+
+    #[test]
+    fn test_controller_unit_info_query() {
+        use crate::preset::{Preset, PresetBank};
+
+        let params = vec![ParamInfo::float(0, "Volume", 0.0, 1.0, 0.5)];
+        let param_state = Arc::new(Mutex::new(SharedParameterState::new(&params)));
+
+        let mut bank = PresetBank::new("Factory", "test.plugin");
+        bank.add(Preset::new("test.plugin", "Init"));
+
+        let factory_presets = FactoryPresets::new().with_bank(bank);
+
+        let controller = Vst3EditController::with_presets(
+            params,
+            param_state,
+            "test.plugin",
+            factory_presets,
+        );
+        let ptr = Box::into_raw(controller) as *mut c_void;
+
+        unsafe {
+            let mut result: *mut c_void = std::ptr::null_mut();
+
+            // Query IUnitInfo - should succeed since we have presets
+            let status = controller_query_interface(ptr, &iid::IUNIT_INFO, &mut result);
+            assert_eq!(status, K_RESULT_OK);
+            assert!(!result.is_null());
+            controller_release(result);
+
+            controller_release(ptr);
+        }
+    }
+
+    #[test]
+    fn test_controller_without_presets_no_unit_info() {
+        let controller = create_test_controller();
+
+        // Should not have unit info when created without presets
+        assert!(controller.unit_info().is_none());
+
+        let ptr = Box::into_raw(controller) as *mut c_void;
+
+        unsafe {
+            let mut result: *mut c_void = std::ptr::null_mut();
+
+            // Query IUnitInfo - should fail since we don't have presets
+            let status = controller_query_interface(ptr, &iid::IUNIT_INFO, &mut result);
+            assert_eq!(status, K_NOT_IMPLEMENTED);
+            assert!(result.is_null());
+
+            controller_release(ptr);
         }
     }
 }

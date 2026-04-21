@@ -2,6 +2,7 @@
 
 pub mod adapter;
 pub mod audio_processor;
+pub mod automation;
 pub mod bundle;
 pub mod category;
 pub mod com;
@@ -14,6 +15,7 @@ pub mod param_map;
 pub mod process_adapter;
 pub mod state_bridge;
 pub mod types;
+pub mod unit_info;
 
 // Re-export the vst3_plugin attribute macro
 pub use pulse_vst3_macro::vst3_plugin;
@@ -35,3 +37,5 @@ pub use param_map::Vst3ParameterMapping;
 pub use process_adapter::Vst3ProcessAdapter;
 pub use state_bridge::MemoryStream;
 pub use types::*;
+pub use automation::{AutomationEvent, SampleAccurateProcessor, extract_automation_events, apply_automation_to_plugin, record_automation_events};
+pub use unit_info::{Vst3UnitInfo, FactoryPresets, UnitInfo, ProgramListInfo, PresetProvider, IUnitInfoVtable, UNIT_INFO_VTABLE};
