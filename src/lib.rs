@@ -29,6 +29,7 @@ pub mod audio;
 pub mod buffer;
 pub mod cli;
 pub mod effects;
+pub mod export;
 pub mod format;
 pub mod host;
 pub mod midi;
